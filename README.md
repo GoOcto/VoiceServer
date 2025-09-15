@@ -20,8 +20,27 @@ pip install -r requirements.txt
 
 ## Usage
 
+Run the server from within your venv.
 
+```bash
+python serve_voice.py
+```
 
+It will serve up an API on the port specified in the code. You can use Postman, for example, to test. Send JSON data as in the following example:
+
+```json
+{
+    "utterance": "Tell me a story.",
+    "speed": 1.2
+}
+```
 
 ## The cloned model
 
+To use the cloned model you will need to provide voice samples in the form of a wav file. The file name can be found in the code.
+
+```
+CLONED_VOICE_FILE = "path/to/your/speaker_voice.wav"
+```
+
+Additionally, to help optimize load time, you can use the utility `calc_latents.py` (in the utils folder) to pregenerate a much smaller .pth file which you can then load directly with the line shown above (instead of the .wav file). 
