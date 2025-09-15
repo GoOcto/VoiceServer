@@ -11,13 +11,14 @@
 # ---
 import io
 import warnings
+
 from flask import Flask, request, send_file
 
 # Suppress future warnings from libraries
-warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-import torch
 import numpy as np
+import torch
 from pydub import AudioSegment
 from TTS.api import TTS
 
@@ -60,40 +61,46 @@ def initialize_model():
     global tts_model, xtts_speaker_data
 
     model_name = None
-    if DEFAULT_MODEL_TYPE == 'vits':
+    if DEFAULT_MODEL_TYPE == "vits":
         model_name = VITS_MODEL
-    elif DEFAULT_MODEL_TYPE == 'glow':
+    elif DEFAULT_MODEL_TYPE == "glow":
         model_name = GLOW_MODEL
-    elif DEFAULT_MODEL_TYPE == 'cloned':
+    elif DEFAULT_MODEL_TYPE == "cloned":
         model_name = CLONED_MODEL
     else:
-        raise ValueError(f"Invalid DEFAULT_MODEL_TYPE: '{DEFAULT_MODEL_TYPE}'. Must be 'vits', 'glow', or 'cloned'.")
+        raise ValueError(
+            f"Invalid DEFAULT_MODEL_TYPE: '{DEFAULT_MODEL_TYPE}'. Must be 'vits', 'glow', or 'cloned'."
+        )
 
     from TTS.config.shared_configs import BaseDatasetConfig
     from TTS.tts.configs.xtts_config import XttsConfig
-    from TTS.tts.models.xtts import XttsArgs
-    from TTS.tts.models.xtts import XttsAudioConfig
-    torch.serialization.add_safe_globals([BaseDatasetConfig, XttsConfig, XttsArgs, XttsAudioConfig])
+    from TTS.tts.models.xtts import XttsArgs, XttsAudioConfig
+
+    torch.serialization.add_safe_globals(
+        [BaseDatasetConfig, XttsConfig, XttsArgs, XttsAudioConfig]
+    )
 
     print(f". Loading model: {model_name}...", end="", flush=True)
     tts_model = TTS(model_name=model_name).to(device)
     print(f"\r✅ Model loaded: {model_name}...")
 
     # Pre-computation for specific models
-    if DEFAULT_MODEL_TYPE == 'vits':
+    if DEFAULT_MODEL_TYPE == "vits":
         if VITS_SPEAKER not in tts_model.speakers:
             print(f"⚠️ Warning: Default speaker '{VITS_SPEAKER}' not found.")
             print(f"Available speakers: {tts_model.speakers}")
             raise ValueError(f"Default speaker '{VITS_SPEAKER}' not found in model.")
         print(f"   Default speaker set to: {VITS_SPEAKER}")
 
-    elif DEFAULT_MODEL_TYPE == 'cloned':
+    elif DEFAULT_MODEL_TYPE == "cloned":
         print("   Computing speaker latents for XTTS model...")
         try:
             xtts_speaker_data = {"speaker_wav": CLONED_VOICE_FILE}
             print("   ✅ Speaker latents computed and cached.")
         except FileNotFoundError:
-            print(f"❌ Error: The audio file for the cloned voice was not found at '{CLONED_VOICE_FILE}'.")
+            print(
+                f"❌ Error: The audio file for the cloned voice was not found at '{CLONED_VOICE_FILE}'."
+            )
             print("   Please update the CLONED_VOICE_FILE path in the script.")
             raise
         except Exception as e:
@@ -107,7 +114,8 @@ initialize_model()
 # --- FLASK API SERVER ---
 app = Flask(__name__)
 
-@app.route('/api/tts', methods=['POST'])
+
+@app.route("/api/tts", methods=["POST"])
 def api_tts():
     """
     The main API endpoint for TTS generation.
@@ -118,27 +126,29 @@ def api_tts():
         return "Invalid request: Content-Type must be application/json", 415
 
     data = request.get_json()
-    if not data or 'utterance' not in data:
+    if not data or "utterance" not in data:
         return "Invalid request: JSON body must contain an 'utterance' key.", 400
 
-    utterance = data['utterance']
+    utterance = data["utterance"]
     # Get speed from request, or use the configured default
-    speed = float(data.get('speed', DEFAULT_SPEED))
-    
-    print(f"🎤 Received request for utterance: \"{utterance[:100]}...\" (Speed: {speed}x)")
+    speed = float(data.get("speed", DEFAULT_SPEED))
+
+    print(
+        f'🎤 Received request for utterance: "{utterance[:100]}..." (Speed: {speed}x)'
+    )
 
     waveform = None
     try:
         # Generate audio based on the configured model type
-        if DEFAULT_MODEL_TYPE == 'vits':
+        if DEFAULT_MODEL_TYPE == "vits":
             waveform = tts_model.tts(text=utterance, speaker=VITS_SPEAKER)
-        elif DEFAULT_MODEL_TYPE == 'glow':
+        elif DEFAULT_MODEL_TYPE == "glow":
             waveform = tts_model.tts(text=utterance)
-        elif DEFAULT_MODEL_TYPE == 'cloned':
+        elif DEFAULT_MODEL_TYPE == "cloned":
             waveform = tts_model.tts(
                 text=utterance,
                 language="en",
-                speaker_wav=xtts_speaker_data['speaker_wav']
+                speaker_wav=xtts_speaker_data["speaker_wav"],
             )
 
     except Exception as e:
@@ -149,43 +159,43 @@ def api_tts():
         return "Audio generation failed for an unknown reason.", 500
 
     sample_rate = tts_model.synthesizer.output_sample_rate
-    
+
     # Convert float waveform to 16-bit PCM
     waveform_int16 = (np.array(waveform) * 32767).astype(np.int16)
-    
+
     # Create a pydub AudioSegment
     audio = AudioSegment(
         waveform_int16.tobytes(),
         frame_rate=sample_rate,
         sample_width=waveform_int16.dtype.itemsize,
-        channels=1
+        channels=1,
     )
 
     # Apply speed adjustment if necessary
     if speed != 1.0:
-        altered_audio = audio._spawn(audio.raw_data, overrides={
-            "frame_rate": int(audio.frame_rate * speed)
-        })
+        altered_audio = audio._spawn(
+            audio.raw_data, overrides={"frame_rate": int(audio.frame_rate * speed)}
+        )
     else:
         altered_audio = audio
 
     # Export the final audio to an in-memory binary buffer
     wav_buffer = io.BytesIO()
     altered_audio.export(wav_buffer, format="wav")
-    wav_buffer.seek(0) # Rewind the buffer to the beginning
+    wav_buffer.seek(0)  # Rewind the buffer to the beginning
 
     print("✅ Audio generated successfully. Sending response.")
 
     # Send the WAV file as the response
     return send_file(
         wav_buffer,
-        mimetype='audio/wav',
-        as_attachment=False, # Use 'True' to force download
-        download_name='output.wav'
+        mimetype="audio/wav",
+        as_attachment=False,  # Use 'True' to force download
+        download_name="output.wav",
     )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Run the Flask app
     # Use host='0.0.0.0' to make the server accessible from other devices on your network
-    app.run(host='0.0.0.0', port=5001)
-
+    app.run(host="0.0.0.0", port=5001)
