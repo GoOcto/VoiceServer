@@ -25,7 +25,7 @@ from TTS.api import TTS
 DEFAULT_MODEL_TYPE = "vits"
 
 # Default speed of the generated speech (1.0 is normal, >1.0 is faster, <1.0 is slower)
-DEFAULT_SPEED = 1.2
+DEFAULT_SPEED = 1.0
 
 VITS_MODEL = "tts_models/en/vctk/vits"
 VITS_SPEAKER = "p273"  # Example speaker from the VCTK dataset
@@ -69,6 +69,12 @@ def initialize_model():
     else:
         raise ValueError(f"Invalid DEFAULT_MODEL_TYPE: '{DEFAULT_MODEL_TYPE}'. Must be 'vits', 'glow', or 'cloned'.")
 
+    from TTS.config.shared_configs import BaseDatasetConfig
+    from TTS.tts.configs.xtts_config import XttsConfig
+    from TTS.tts.models.xtts import XttsArgs
+    from TTS.tts.models.xtts import XttsAudioConfig
+    torch.serialization.add_safe_globals([BaseDatasetConfig, XttsConfig, XttsArgs, XttsAudioConfig])
+
     print(f". Loading model: {model_name}...", end="", flush=True)
     tts_model = TTS(model_name=model_name).to(device)
     print(f"\r✅ Model loaded: {model_name}...")
@@ -84,8 +90,7 @@ def initialize_model():
     elif DEFAULT_MODEL_TYPE == 'cloned':
         print("   Computing speaker latents for XTTS model...")
         try:
-            gpt_cond_latent, speaker_embedding = tts_model.get_conditioning_latents(audio_path=CLONED_VOICE_FILE)
-            xtts_speaker_data = {"gpt_cond_latent": gpt_cond_latent, "speaker_embedding": speaker_embedding}
+            xtts_speaker_data = {"speaker_wav": CLONED_VOICE_FILE}
             print("   ✅ Speaker latents computed and cached.")
         except FileNotFoundError:
             print(f"❌ Error: The audio file for the cloned voice was not found at '{CLONED_VOICE_FILE}'.")
@@ -132,9 +137,8 @@ def api_tts():
         elif DEFAULT_MODEL_TYPE == 'cloned':
             waveform = tts_model.tts(
                 text=utterance,
-                language="en",  # Assuming English, change if needed
-                gpt_cond_latent=xtts_speaker_data['gpt_cond_latent'],
-                speaker_embedding=xtts_speaker_data['speaker_embedding']
+                language="en",
+                speaker_wav=xtts_speaker_data['speaker_wav']
             )
 
     except Exception as e:
