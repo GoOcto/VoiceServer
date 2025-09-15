@@ -1,5 +1,6 @@
 flask
-torch
 numpy
 pydub
+torch
+transformers==4.37.2
 TTS
